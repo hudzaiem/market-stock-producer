@@ -1,0 +1,9 @@
+services:
+  stock-producer:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: stock-producer
+    restart: always
+    env_file:
+      - ../.env
