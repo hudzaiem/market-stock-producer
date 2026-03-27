@@ -1,4 +1,6 @@
 notebook
 .env
+.env.docker
+.env.remote
 __pycache__
 Stock List  - 20260323.xlsx
