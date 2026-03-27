@@ -1,0 +1,9 @@
+services:
+  stock-producer:
+    networks:
+      - kafka-network
+
+networks:
+  kafka-network:
+    external: true
+    name: ${KAFKA_DOCKER_NETWORK:-kafka-boilerplate_default}
