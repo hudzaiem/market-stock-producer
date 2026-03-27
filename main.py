@@ -29,6 +29,7 @@ def main():
 
     kafka_conn = KafkaConnection(
         bootstrap_servers=kafka_cfg.bootstrap_servers,
+        security_protocol=kafka_cfg.security_protocol,
         username=kafka_cfg.username,
         password=kafka_cfg.password,
     )
