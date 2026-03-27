@@ -47,7 +47,7 @@ yfinance WebSocket → StockProducer (message_handler) → Kafka Topic
    pip install -r requirements.txt
    ```
 
-2. **Configure environment**
+2. **Configure environment variables**
 
    Copy the example and fill in your values:
 
@@ -57,7 +57,7 @@ yfinance WebSocket → StockProducer (message_handler) → Kafka Topic
 
 3. **Stock list**
 
-   Place an Excel file at `seeds/stock_list.xlsx` with a `Code` column containing IDX stock codes (e.g., `BBCA`, `TLKM`).
+   Place an Excel file at `seeds/stock_list.xlsx` with a `Code` column containing IDX stock codes (e.g., `BBCA`, `TLKM`). You can download the list from [IDX](https://www.idx.co.id/).
 
 ## Usage
 
