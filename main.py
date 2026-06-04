@@ -1,4 +1,4 @@
-import kafka
+import asyncio
 import logging
 
 from dotenv import load_dotenv
@@ -18,9 +18,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():
+async def main():
     kafka_cfg = KafkaConfig()
-    
+
     logger.info(
         "Kafka config loaded — brokers=%s, topic=%s",
         kafka_cfg.bootstrap_servers,
@@ -38,10 +38,11 @@ def main():
     stock_producer = StockProducer(producer=producer, topic=kafka_cfg.topic)
 
     stock_list = get_stock_list()
+    logger.info("Loaded %d stocks to subscribe", len(stock_list))
 
     yf_api = YFinanceAPI()
     try:
-        yf_api.get_stream_data(
+        await yf_api.get_stream_data(
             stock_list=stock_list,
             message_handler=stock_producer.message_handler,
         )
@@ -52,4 +53,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
