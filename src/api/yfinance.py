@@ -11,6 +11,35 @@ SUBSCRIBE_BATCH_SIZE = 50
 SUBSCRIBE_BATCH_DELAY = 1.0
 
 
+async def _batched_subscribe(ws, symbols: list[str]):
+    total_batches = (len(symbols) + SUBSCRIBE_BATCH_SIZE - 1) // SUBSCRIBE_BATCH_SIZE
+    for i in range(0, len(symbols), SUBSCRIBE_BATCH_SIZE):
+        batch = symbols[i:i + SUBSCRIBE_BATCH_SIZE]
+        message = {"subscribe": batch}
+        await ws._ws.send(json.dumps(message))
+        logger.info(
+            "Subscribed batch %d/%d (%d symbols)",
+            i // SUBSCRIBE_BATCH_SIZE + 1,
+            total_batches,
+            len(batch),
+        )
+        if i + SUBSCRIBE_BATCH_SIZE < len(symbols):
+            await asyncio.sleep(SUBSCRIBE_BATCH_DELAY)
+    logger.info("All %d symbols subscribed in %d batches", len(symbols), total_batches)
+
+
+async def _batched_heartbeat(ws):
+    while True:
+        try:
+            await asyncio.sleep(ws._subscription_interval)
+            if ws._subscriptions:
+                await _batched_subscribe(ws, list(ws._subscriptions))
+                logger.info("Heartbeat: re-subscribed %d symbols in batches", len(ws._subscriptions))
+        except Exception as e:
+            logger.error("Error in batched heartbeat: %s", e, exc_info=True)
+            break
+
+
 class YFinanceAPI:
 
     def get_history(self, stock_list: list[str], period='5y') -> list[dict]:
@@ -23,19 +52,11 @@ class YFinanceAPI:
 
         ws._subscriptions.update(stock_list)
 
-        total_batches = (len(stock_list) + SUBSCRIBE_BATCH_SIZE - 1) // SUBSCRIBE_BATCH_SIZE
-        for i in range(0, len(stock_list), SUBSCRIBE_BATCH_SIZE):
-            batch = stock_list[i:i + SUBSCRIBE_BATCH_SIZE]
-            message = {"subscribe": batch}
-            await ws._ws.send(json.dumps(message))
-            logger.info(
-                "Subscribed batch %d/%d (%d symbols)",
-                i // SUBSCRIBE_BATCH_SIZE + 1,
-                total_batches,
-                len(batch),
-            )
-            if i + SUBSCRIBE_BATCH_SIZE < len(stock_list):
-                await asyncio.sleep(SUBSCRIBE_BATCH_DELAY)
+        await _batched_subscribe(ws, stock_list)
 
-        logger.info("All %d symbols subscribed in %d batches", len(stock_list), total_batches)
+        # Override default heartbeat with batched version
+        if ws._heartbeat_task is not None:
+            ws._heartbeat_task.cancel()
+        ws._heartbeat_task = asyncio.create_task(_batched_heartbeat(ws))
+
         await ws.listen(message_handler)
