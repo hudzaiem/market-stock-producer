@@ -7,37 +7,36 @@ from yfinance import AsyncWebSocket
 
 logger = logging.getLogger(__name__)
 
-SUBSCRIBE_BATCH_SIZE = 50
-SUBSCRIBE_BATCH_DELAY = 1.0
+SYMBOLS_PER_CONNECTION = 50
 
 
-async def _batched_subscribe(ws, symbols: list[str]):
-    total_batches = (len(symbols) + SUBSCRIBE_BATCH_SIZE - 1) // SUBSCRIBE_BATCH_SIZE
-    for i in range(0, len(symbols), SUBSCRIBE_BATCH_SIZE):
-        batch = symbols[i:i + SUBSCRIBE_BATCH_SIZE]
-        message = {"subscribe": batch}
-        await ws._ws.send(json.dumps(message))
-        logger.info(
-            "Subscribed batch %d/%d (%d symbols)",
-            i // SUBSCRIBE_BATCH_SIZE + 1,
-            total_batches,
-            len(batch),
-        )
-        if i + SUBSCRIBE_BATCH_SIZE < len(symbols):
-            await asyncio.sleep(SUBSCRIBE_BATCH_DELAY)
-    logger.info("All %d symbols subscribed in %d batches", len(symbols), total_batches)
-
-
-async def _batched_heartbeat(ws):
+async def _run_ws(symbols: list[str], conn_id: int, total_conns: int, message_handler):
     while True:
         try:
-            await asyncio.sleep(ws._subscription_interval)
-            if ws._subscriptions:
-                await _batched_subscribe(ws, list(ws._subscriptions))
-                logger.info("Heartbeat: re-subscribed %d symbols in batches", len(ws._subscriptions))
+            ws = AsyncWebSocket(verbose=False)
+            await ws._connect()
+
+            if ws._heartbeat_task is not None:
+                ws._heartbeat_task.cancel()
+                ws._heartbeat_task = None
+
+            ws._subscriptions.update(symbols)
+            message = {"subscribe": symbols}
+            await ws._ws.send(json.dumps(message))
+            logger.info("Connection %d/%d: subscribed %d symbols", conn_id, total_conns, len(symbols))
+
+            async for raw in ws._ws:
+                message_json = json.loads(raw)
+                encoded_data = message_json.get("message", "")
+                decoded = ws._decode_message(encoded_data)
+                if message_handler:
+                    message_handler(decoded)
+
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error("Error in batched heartbeat: %s", e, exc_info=True)
-            break
+            logger.error("Connection %d/%d error: %s — reconnecting in 5s", conn_id, total_conns, e)
+            await asyncio.sleep(5)
 
 
 class YFinanceAPI:
@@ -47,16 +46,21 @@ class YFinanceAPI:
         return result.stack(level=0).rename_axis(['Date', 'Ticker']).reset_index(level=1).reset_index().to_dict(orient='records')
 
     async def get_stream_data(self, stock_list: list[str], message_handler):
-        ws = AsyncWebSocket()
-        await ws._connect()
+        chunks = [
+            stock_list[i:i + SYMBOLS_PER_CONNECTION]
+            for i in range(0, len(stock_list), SYMBOLS_PER_CONNECTION)
+        ]
+        total = len(chunks)
+        logger.info("Spawning %d WebSocket connections for %d symbols (%d per conn)", total, len(stock_list), SYMBOLS_PER_CONNECTION)
 
-        ws._subscriptions.update(stock_list)
+        tasks = [
+            asyncio.create_task(_run_ws(chunk, idx + 1, total, message_handler))
+            for idx, chunk in enumerate(chunks)
+        ]
 
-        await _batched_subscribe(ws, stock_list)
-
-        # Override default heartbeat with batched version
-        if ws._heartbeat_task is not None:
-            ws._heartbeat_task.cancel()
-        ws._heartbeat_task = asyncio.create_task(_batched_heartbeat(ws))
-
-        await ws.listen(message_handler)
+        try:
+            await asyncio.gather(*tasks)
+        except KeyboardInterrupt:
+            for t in tasks:
+                t.cancel()
+            raise
