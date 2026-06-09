@@ -3,3 +3,4 @@ python-dotenv==1.2.2
 kafka-python-ng==2.2.3
 yfinance==1.2.0
 openpyxl>=3.1.5
+clickhouse-connect>=0.8.0
